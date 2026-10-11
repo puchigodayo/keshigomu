@@ -1,0 +1,1176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>消しゴム</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+        }
+
+        /* ===== メニュー / ロビーUI ===== */
+        #ui {
+            position: fixed; inset: 0; z-index: 10;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(20, 20, 20, 0.82);
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            color: #fff;
+            font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+            transition: opacity .35s;
+        }
+        #ui.hidden { opacity: 0; pointer-events: none; }
+        .screen {
+            display: none; flex-direction: column; align-items: center;
+            gap: 18px; padding: 24px; width: min(420px, 100%); box-sizing: border-box;
+            text-align: center;
+        }
+        .screen.active { display: flex; }
+        h1 {
+            margin: 0 0 12px; font-size: clamp(56px, 16vw, 96px);
+            letter-spacing: .12em; font-weight: 800;
+            text-shadow: 0 4px 0 #ff6b6b, 0 10px 24px rgba(0,0,0,.5);
+        }
+        h2 { margin: 0 0 4px; font-size: 24px; letter-spacing: .08em; }
+        .btn {
+            appearance: none; border: 2px solid #fff; background: transparent; color: #fff;
+            font: inherit; font-size: 18px; font-weight: 700; letter-spacing: .1em;
+            padding: 12px 28px; border-radius: 999px; cursor: pointer;
+            min-width: 160px; transition: transform .1s, background .2s, opacity .2s;
+        }
+        .btn:hover:not(:disabled) { background: rgba(255,255,255,.14); }
+        .btn:active:not(:disabled) { transform: scale(.96); }
+        .btn:disabled { opacity: .35; cursor: not-allowed; }
+        .btn.primary { background: #ff6b6b; border-color: #ff6b6b; color: #fff; }
+        .btn.primary:hover:not(:disabled) { background: #ff8585; }
+        #btn-start { font-size: 26px; padding: 16px 56px; }
+        .btn.ghost { border-color: transparent; font-size: 15px; opacity: .8; }
+        .divider { font-size: 13px; opacity: .6; }
+        .join-row { display: flex; gap: 10px; align-items: center; }
+        #code-input {
+            width: 140px; font: inherit; font-size: 28px; font-weight: 700; text-align: center;
+            letter-spacing: .3em; padding: 8px 4px 8px 14px; border-radius: 12px;
+            border: 2px solid #fff; background: rgba(255,255,255,.08); color: #fff; outline: none;
+        }
+        #code-input:focus { border-color: #6bcbff; }
+        .msg { min-height: 1.4em; margin: 0; font-size: 14px; color: #ffb3b3; }
+        .label { font-size: 14px; opacity: .7; letter-spacing: .2em; }
+        #room-code {
+            font-size: 72px; font-weight: 800; letter-spacing: .18em; padding-left: .18em;
+            font-variant-numeric: tabular-nums; line-height: 1;
+        }
+        .slots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+        .slot {
+            display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+            border-radius: 14px; border: 2px dashed rgba(255,255,255,.25);
+            font-size: 15px; text-align: left; min-height: 24px;
+        }
+        .slot.filled { border-style: solid; border-color: rgba(255,255,255,.7); background: rgba(255,255,255,.08); }
+        .slot .dot { width: 22px; height: 14px; border-radius: 4px; background: #555; flex: none; }
+        .slot .name { font-weight: 700; }
+        .slot .tag { font-size: 12px; opacity: .75; }
+        #lobby-status { margin: 0; font-size: 14px; opacity: .8; min-height: 1.4em; }
+        #hud {
+            position: fixed; top: 12px; left: 12px; z-index: 5; display: none;
+            align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px;
+            background: rgba(0,0,0,.5); color: #fff; font-size: 14px; font-weight: 700;
+            font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif; pointer-events: none;
+        }
+        #hud-dot { width: 20px; height: 12px; border-radius: 4px; background: #888; }
+    </style>
+</head>
+<body>
+
+    <div id="hud"><span id="hud-dot"></span><span id="hud-text"></span></div>
+
+    <div id="ui">
+        <div id="screen-menu" class="screen active">
+            <h1>消しゴム</h1>
+            <button id="btn-start" class="btn primary">START</button>
+        </div>
+
+        <div id="screen-entry" class="screen">
+            <h2>オンライン対戦</h2>
+            <button id="btn-create" class="btn primary">部屋をつくる</button>
+            <div class="divider">または 4桁の番号で入る</div>
+            <div class="join-row">
+                <input id="code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="0000" autocomplete="off">
+                <button id="btn-join" class="btn" disabled>入る</button>
+            </div>
+            <p id="entry-msg" class="msg"></p>
+            <button id="btn-entry-back" class="btn ghost">もどる</button>
+        </div>
+
+        <div id="screen-lobby" class="screen">
+            <div class="label">ルーム番号</div>
+            <div id="room-code">----</div>
+            <div class="slots" id="slots"></div>
+            <p id="lobby-status"></p>
+            <button id="btn-begin" class="btn primary" disabled>ゲーム開始</button>
+            <button id="btn-leave" class="btn ghost">退出</button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import * as CANNON from 'cannon-es';
+
+        // ============================================
+        // 物理スケール設定（メートル単位）
+        // ============================================
+        const DESK_WIDTH  = 0.7;
+        const DESK_DEPTH  = 0.4;
+        const DESK_THICKNESS = 0.02;
+
+        const ERASER_LONG  = 0.05 * 2 / 3;
+        const ERASER_SHORT = ERASER_LONG * 0.6;
+        const ERASER_HEIGHT = ERASER_LONG * 0.35;
+
+        const eraserSize = {
+            width: ERASER_LONG,
+            height: ERASER_HEIGHT,
+            depth: ERASER_SHORT
+        };
+
+        // ============================================
+        // 発射パワーと矢印の設定
+        // ============================================
+        const LAUNCH_POWER_MULTIPLIER = 9.75;
+
+        // ★ 最大速度制限（貫通防止のため上限を設定）
+        const MAX_SPEED = 2.0;  // m/s
+
+        // ============================================
+        // 速度依存の減衰設定
+        // ============================================
+        const DAMPING_BASE = 0.01;
+        const DAMPING_LOW_SPEED = 3.0;
+        const DAMPING_HIGH_SPEED = 0.25;
+        const SPEED_LOW_THRESHOLD = 0.3;
+        const SPEED_HIGH_THRESHOLD = 2.7;
+        const MIN_STOP_SPEED = 0.03;
+
+        // ============================================
+        // 停止判定と消滅設定
+        // ============================================
+        const AUTO_STOP_SPEED = 0.15;
+        const AUTO_STOP_TIME = 0.15;
+        const AUTO_STOP_ANG_SPEED = 0.5;
+
+        const FALL_KILL_DEPTH = 0.5;
+        const FALL_KILL_Y = -FALL_KILL_DEPTH;
+
+        // ============================================
+        // シーン・カメラ・レンダラーのセットアップ
+        // ============================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a1a);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100);
+        camera.position.set(0, 1.0, 0.001);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.1;
+        document.body.appendChild(renderer.domElement);
+
+        // ============================================
+        // ライティング
+        // ============================================
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfff5e0, 2.2);
+        dirLight.position.set(0.3, 1.5, 0.3);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.1;
+        dirLight.shadow.camera.far = 5;
+        dirLight.shadow.camera.left = -0.6;
+        dirLight.shadow.camera.right = 0.6;
+        dirLight.shadow.camera.top = 0.6;
+        dirLight.shadow.camera.bottom = -0.6;
+        dirLight.shadow.bias = -0.0002;
+        scene.add(dirLight);
+
+        const fillLight = new THREE.PointLight(0xaaccff, 0.4);
+        fillLight.position.set(-0.5, 0.8, -0.5);
+        scene.add(fillLight);
+
+        // ============================================
+        // 物理演算のセットアップ
+        // ============================================
+        const world = new CANNON.World();
+        world.gravity.set(0, -9.82, 0);
+        // ★ ブロードフェーズ：SAPより安定な NaiveBroadphase も選択肢だが
+        //    サイズが小さいので SAP のままでOK。ただしallowSleep有効化。
+        world.broadphase = new CANNON.SAPBroadphase(world);
+        world.broadphase.axisIndex = 0;  // X軸優先でソート
+        world.defaultContactMaterial.friction = 0.0;
+        world.defaultContactMaterial.restitution = 0.0;
+
+        // ★ ソルバーを強化（貫通防止）
+        world.solver.iterations = 40;
+        world.solver.tolerance = 0.0001;
+
+        // ★ CCD（連続衝突検出）的なサブステップ数を増やす
+        world.allowSleep = false;  // 手動制御するため
+
+        const deskMaterial = new CANNON.Material('desk');
+        const eraserMaterial = new CANNON.Material('eraser');
+
+        const contactMaterial = new CANNON.ContactMaterial(deskMaterial, eraserMaterial, {
+            friction: 0.0,
+            restitution: 0.0,
+            // ★ 接触を硬めにして貫通しにくくする（ただし振動しない程度）
+            contactEquationStiffness: 5e7,
+            contactEquationRelaxation: 2,
+            frictionEquationStiffness: 5e7,
+            frictionEquationRelaxation: 2
+        });
+        world.addContactMaterial(contactMaterial);
+
+        const eraserEraserMaterial = new CANNON.ContactMaterial(eraserMaterial, eraserMaterial, {
+            friction: 0.0,
+            restitution: 0.4,  // ★ 0.6 → 0.4 に下げて暴れにくく
+            contactEquationStiffness: 5e7,
+            contactEquationRelaxation: 2,
+            frictionEquationStiffness: 5e7,
+            frictionEquationRelaxation: 2
+        });
+        world.addContactMaterial(eraserEraserMaterial);
+
+        // ============================================
+        // 机（木製天板）の作成
+        // ============================================
+        const deskGroup = new THREE.Group();
+        scene.add(deskGroup);
+
+        function createWoodTexture(width, height) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            const baseGrad = ctx.createLinearGradient(0, 0, 0, height);
+            baseGrad.addColorStop(0, '#b8895a');
+            baseGrad.addColorStop(0.5, '#a87848');
+            baseGrad.addColorStop(1, '#b8895a');
+            ctx.fillStyle = baseGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            for (let i = 0; i < 80; i++) {
+                const y = Math.random() * height;
+                const amp = 3 + Math.random() * 8;
+                const freq = 0.01 + Math.random() * 0.03;
+                const alpha = 0.05 + Math.random() * 0.15;
+                const darkness = Math.random() < 0.5;
+
+                ctx.strokeStyle = darkness
+                    ? `rgba(80, 45, 20, ${alpha})`
+                    : `rgba(220, 180, 130, ${alpha})`;
+                ctx.lineWidth = 0.5 + Math.random() * 2;
+                ctx.beginPath();
+                for (let x = 0; x <= width; x += 4) {
+                    const yy = y + Math.sin(x * freq + i) * amp;
+                    if (x === 0) ctx.moveTo(x, yy);
+                    else ctx.lineTo(x, yy);
+                }
+                ctx.stroke();
+            }
+
+            for (let i = 0; i < 3; i++) {
+                const cx = Math.random() * width;
+                const cy = Math.random() * height;
+                const r = 8 + Math.random() * 15;
+                for (let j = 5; j > 0; j--) {
+                    ctx.beginPath();
+                    ctx.ellipse(cx, cy, r * j * 0.2, r * j * 0.12, Math.random() * Math.PI, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(70, 40, 15, ${0.1 + j * 0.05})`;
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.colorSpace = THREE.SRGBColorSpace;
+            return texture;
+        }
+
+        const woodTexture = createWoodTexture(1024, 768);
+
+        // ★ 机の天板を薄い箱から「厚い箱」に変更（貫通防止）
+        //    見た目は同じだが、物理的には厚みを持たせてすり抜けを防ぐ
+        const DESK_PHYSICS_THICKNESS = 0.2;  // 物理的な厚み（見た目は別）
+        
+        const deskTopGeometry = new THREE.BoxGeometry(DESK_WIDTH, DESK_THICKNESS, DESK_DEPTH);
+        const deskTopMaterial = new THREE.MeshStandardMaterial({
+            map: woodTexture,
+            roughness: 0.65,
+            metalness: 0.0
+        });
+        const deskTop = new THREE.Mesh(deskTopGeometry, deskTopMaterial);
+        deskTop.position.y = -DESK_THICKNESS / 2;
+        deskTop.receiveShadow = true;
+        deskTop.castShadow = true;
+        deskGroup.add(deskTop);
+
+        const edgeMaterial = new THREE.MeshStandardMaterial({
+            color: 0x8a5f38,
+            roughness: 0.7
+        });
+        const edgeThickness = 0.001;
+        for (const z of [DESK_DEPTH / 2, -DESK_DEPTH / 2]) {
+            const edge = new THREE.Mesh(
+                new THREE.BoxGeometry(DESK_WIDTH, DESK_THICKNESS, edgeThickness),
+                edgeMaterial
+            );
+            edge.position.set(0, -DESK_THICKNESS / 2, z);
+            deskGroup.add(edge);
+        }
+        for (const x of [DESK_WIDTH / 2, -DESK_WIDTH / 2]) {
+            const edge = new THREE.Mesh(
+                new THREE.BoxGeometry(edgeThickness, DESK_THICKNESS, DESK_DEPTH),
+                edgeMaterial
+            );
+            edge.position.set(x, -DESK_THICKNESS / 2, 0);
+            deskGroup.add(edge);
+        }
+
+        const legMaterial = new THREE.MeshStandardMaterial({
+            color: 0x6b4a2a,
+            roughness: 0.8
+        });
+        const legThickness = 0.02;
+        const legHeight = 0.3;
+        const legOffsetX = DESK_WIDTH / 2 - 0.03;
+        const legOffsetZ = DESK_DEPTH / 2 - 0.03;
+
+        const legPositions = [
+            [ legOffsetX,  legOffsetZ],
+            [ legOffsetX, -legOffsetZ],
+            [-legOffsetX,  legOffsetZ],
+            [-legOffsetX, -legOffsetZ]
+        ];
+
+        for (const [x, z] of legPositions) {
+            const leg = new THREE.Mesh(
+                new THREE.BoxGeometry(legThickness, legHeight, legThickness),
+                legMaterial
+            );
+            leg.position.set(x, -DESK_THICKNESS - legHeight / 2, z);
+            leg.castShadow = true;
+            leg.receiveShadow = true;
+            deskGroup.add(leg);
+        }
+
+        // ★ 物理的な机：見た目より厚い箱にして貫通を防止
+        //    上面は y=0 に合わせる（消しゴムが乗る位置）
+        const deskShape = new CANNON.Box(new CANNON.Vec3(
+            DESK_WIDTH / 2,
+            DESK_PHYSICS_THICKNESS / 2,
+            DESK_DEPTH / 2
+        ));
+        const deskBody = new CANNON.Body({
+            mass: 0,
+            shape: deskShape,
+            material: deskMaterial
+        });
+        deskBody.position.set(0, -DESK_PHYSICS_THICKNESS / 2, 0);
+        world.addBody(deskBody);
+
+        // ============================================
+        // 消しゴムの作成（複数）
+        // ============================================
+        const erasers = [];
+
+        const eraserColors = [
+            0xff6b6b,
+            0x6bcbff,
+            0x9bff6b,
+            0xffdd6b,
+            0xff6bdd
+        ];
+
+        const eraserGeometry = new THREE.BoxGeometry(
+            eraserSize.width,
+            eraserSize.height,
+            eraserSize.depth
+        );
+        const labelGeometry = new THREE.PlaneGeometry(
+            eraserSize.width * 0.7,
+            eraserSize.depth * 0.6
+        );
+
+        function createEraser(position, color, slot) {
+            const material = new THREE.MeshStandardMaterial({
+                color: color,
+                roughness: 0.75,
+                metalness: 0.02
+            });
+            const mesh = new THREE.Mesh(eraserGeometry, material);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            scene.add(mesh);
+
+            const labelMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.4
+            });
+            const label = new THREE.Mesh(labelGeometry, labelMat);
+            label.rotation.x = -Math.PI / 2;
+            label.position.y = eraserSize.height / 2 + 0.0001;
+            mesh.add(label);
+
+            const shape = new CANNON.Box(new CANNON.Vec3(
+                eraserSize.width / 2,
+                eraserSize.height / 2,
+                eraserSize.depth / 2
+            ));
+            const body = new CANNON.Body({
+                mass: 0.02 / (2/3),
+                shape: shape,
+                material: eraserMaterial,
+                linearDamping: DAMPING_BASE,
+                angularDamping: 0.9  // ★ 0.3 → 0.9 に上げて勝手な回転を抑制
+            });
+            body.allowSleep = false;
+            body.position.set(
+                position.x,
+                eraserSize.height / 2 + 0.001,
+                position.z
+            );
+            // ★ 初期回転をゼロに（勝手に回り始めるのを防止）
+            body.quaternion.set(0, 0, 0, 1);
+            body.angularVelocity.set(0, 0, 0);
+            world.addBody(body);
+
+            const eraserData = {
+                mesh,
+                body,
+                color,
+                slot,                 // どのプレイヤーの消しゴムか
+                removed: false,       // プレイヤーが退出して盤面から消えた
+                respawning: false,    // 落下して復帰待ち
+                respawnTimer: 0,
+                labelMat,
+                initialPos: {
+                    x: position.x,
+                    y: eraserSize.height / 2 + 0.001,
+                    z: position.z
+                },
+                stopTimer: 0,
+                dead: false
+            };
+            erasers.push(eraserData);
+            return eraserData;
+        }
+
+
+        // ============================================
+        // 速度依存の減衰を適用する関数
+        // ============================================
+        function applySpeedDependentDamping(body, delta) {
+            const v = body.velocity;
+            const speed = Math.sqrt(v.x * v.x + v.z * v.z);
+
+            if (speed < 0.001) {
+                // ★ ほぼ止まっている時は水平速度を完全にゼロに
+                v.x = 0;
+                v.z = 0;
+                return;
+            }
+
+            let dampingFactor;
+            if (speed >= SPEED_HIGH_THRESHOLD) {
+                dampingFactor = DAMPING_HIGH_SPEED;
+            } else if (speed <= SPEED_LOW_THRESHOLD) {
+                dampingFactor = DAMPING_LOW_SPEED;
+            } else {
+                const t = (speed - SPEED_LOW_THRESHOLD) /
+                          (SPEED_HIGH_THRESHOLD - SPEED_LOW_THRESHOLD);
+                dampingFactor = DAMPING_LOW_SPEED * (1 - t) + DAMPING_HIGH_SPEED * t;
+            }
+
+            const scale = Math.max(0, 1 - dampingFactor * delta);
+            v.x *= scale;
+            v.z *= scale;
+
+            if (speed < MIN_STOP_SPEED) {
+                v.x = 0;
+                v.z = 0;
+                body.angularVelocity.set(0, 0, 0);
+            }
+
+            // ★ 角速度も強めに減衰（勝手な回転抑制）
+            const av = body.angularVelocity;
+            const avScale = Math.max(0, 1 - 4.0 * delta);  // 2.0 → 4.0
+            av.x *= avScale;
+            av.y *= avScale;
+            av.z *= avScale;
+
+            // ★ 水平方向の角速度（Y軸回転）を特に抑制
+            if (Math.abs(av.y) < 0.3) {
+                av.y = 0;
+            }
+        }
+
+        // ============================================
+        // 操作（自分の消しゴムだけを引っ張って発射）
+        // ============================================
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        let isDragging = false;
+        const dragPointer = new THREE.Vector3();   // 机の平面上のポインタ位置
+        const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+        const lineGeometry = new THREE.BufferGeometry();
+        const lineMaterial = new THREE.LineBasicMaterial({ color: 0x66ddff, linewidth: 2 });
+        const line = new THREE.Line(lineGeometry, lineMaterial);
+        line.visible = false;
+        line.frustumCulled = false;
+        scene.add(line);
+
+        const maxPullDistance = 0.15;
+
+        // 自分の消しゴムの足元に出すリング（どれが自分か分かるように）
+        const ownRing = new THREE.Mesh(
+            new THREE.RingGeometry(0.030, 0.034, 40),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false })
+        );
+        ownRing.rotation.x = -Math.PI / 2;
+        ownRing.visible = false;
+        scene.add(ownRing);
+
+        function pointerOnPlane(clientX, clientY, out) {
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            return raycaster.ray.intersectPlane(dragPlane, out) !== null;
+        }
+
+        // 消しゴムの現在位置 → ポインタ の逆向きが発射方向
+        function pullFromPointer() {
+            const a = myEraser.mesh.position;
+            const dx = a.x - dragPointer.x;
+            const dz = a.z - dragPointer.z;
+            return { dx, dz, len: Math.hypot(dx, dz) };
+        }
+
+        function canControl() {
+            return gameStarted && myEraser && !myEraser.removed && !myEraser.respawning;
+        }
+
+        function startDrag(clientX, clientY) {
+            if (!canControl()) return;
+            if (!pointerOnPlane(clientX, clientY, dragPointer)) return;
+            const p = myEraser.mesh.position;
+            const dist = Math.hypot(dragPointer.x - p.x, dragPointer.z - p.z);
+            if (dist > Math.max(eraserSize.width, eraserSize.depth) * 1.6) return;
+            isDragging = true;
+            renderer.domElement.style.cursor = 'grabbing';
+        }
+
+        function updateDrag(clientX, clientY) {
+            if (!isDragging) return;
+            pointerOnPlane(clientX, clientY, dragPointer);
+        }
+
+        function endDrag(clientX, clientY) {
+            if (!isDragging) return;
+            isDragging = false;
+            line.visible = false;
+            renderer.domElement.style.cursor = 'default';
+            if (!canControl()) return;
+
+            if (clientX !== undefined && clientY !== undefined) {
+                pointerOnPlane(clientX, clientY, dragPointer);
+            }
+            const { dx, dz, len } = pullFromPointer();
+            const pullDistance = Math.min(len, maxPullDistance);
+            if (pullDistance <= 0.01) return;
+
+            const speed = Math.min(pullDistance * LAUNCH_POWER_MULTIPLIER, MAX_SPEED);
+            const vx = dx / len * speed;
+            const vz = dz / len * speed;
+
+            if (role === 'host') {
+                applyLaunch(myEraser, vx, vz);
+            } else if (hostConn && hostConn.open) {
+                hostConn.send({ type: 'launch', vx, vz });   // 実際の物理はホストが計算する
+            }
+        }
+
+        function updateAimLine() {
+            if (!isDragging || !canControl()) { line.visible = false; return; }
+            const a = myEraser.mesh.position;
+            const { dx, dz, len } = pullFromPointer();
+            if (len < 1e-6) { line.visible = false; return; }
+            const d = Math.min(len, maxPullDistance);
+            lineGeometry.setFromPoints([
+                new THREE.Vector3(a.x, 0.005, a.z),
+                new THREE.Vector3(a.x + dx / len * d, 0.005, a.z + dz / len * d)
+            ]);
+            line.visible = true;
+        }
+
+        renderer.domElement.addEventListener('mousedown', (e) => {
+            startDrag(e.clientX, e.clientY);
+        });
+        window.addEventListener('mousemove', (e) => {
+            updateDrag(e.clientX, e.clientY);
+        });
+        window.addEventListener('mouseup', (e) => {
+            endDrag(e.clientX, e.clientY);
+        });
+
+        renderer.domElement.addEventListener('touchstart', (e) => {
+            if (e.touches.length > 0) {
+                e.preventDefault();
+                const t = e.touches[0];
+                startDrag(t.clientX, t.clientY);
+            }
+        }, { passive: false });
+        window.addEventListener('touchmove', (e) => {
+            if (isDragging && e.touches.length > 0) {
+                e.preventDefault();
+                const t = e.touches[0];
+                updateDrag(t.clientX, t.clientY);
+            }
+        }, { passive: false });
+        window.addEventListener('touchend', (e) => {
+            if (isDragging) {
+                const t = e.changedTouches[0];
+                endDrag(t ? t.clientX : undefined, t ? t.clientY : undefined);
+            }
+        });
+
+        // ============================================
+        // ★ 高速衝突時の貫通を補正する関数
+        // ============================================
+        function resolvePenetration(eraser, delta) {
+            const body = eraser.body;
+            const r = eraserSize; // 消しゴムの寸法
+
+            // 机の上面を基準に、消しゴムがめり込んでいたら押し出す
+            // ただし机の範囲内のみ
+            const deskHalfW = DESK_WIDTH / 2;
+            const deskHalfD = DESK_DEPTH / 2;
+            const onDeskArea = 
+                Math.abs(body.position.x) < deskHalfW &&
+                Math.abs(body.position.z) < deskHalfD;
+
+            if (onDeskArea && body.position.y < r.height / 2) {
+                body.position.y = r.height / 2;
+                if (body.velocity.y < 0) {
+                    body.velocity.y = 0;
+                }
+            }
+        }
+
+        // ============================================
+        // アニメーションループ
+        // ============================================
+        // ============================================
+        // 試合の管理（配置・落下からの復帰・盤面の同期）
+        //   ホスト  : 物理演算を実行し、約30Hzで全員に盤面を配信
+        //   ゲスト  : 発射の入力だけをホストへ送り、受け取った盤面を表示
+        // ============================================
+        const RESPAWN_DELAY = 1.0;          // 落下してから元の位置に戻るまで(秒)
+        const NET_SEND_INTERVAL = 1 / 30;
+        const SPAWN_MARGIN = 0.06;          // 机の端から初期位置までの距離(m)
+
+        let gameStarted = false;
+        let myEraser = null;
+        const erasersBySlot = new Map();
+
+        // 画面の上(奥) = -z / 手前 = +z / 右 = +x
+        function getSpawnLayout(n) {
+            const ex = DESK_WIDTH / 2 - SPAWN_MARGIN;
+            const ez = DESK_DEPTH / 2 - SPAWN_MARGIN;
+            const layouts = {
+                1: [{ x: 0, z: 0 }],
+                2: [{ x: -ex, z: 0 }, { x: ex, z: 0 }],                                   // 左右の端
+                3: [{ x: -ex, z: -ez }, { x: ex, z: -ez }, { x: 0, z: ez }],              // 左右の奥 + 手前の真ん中
+                4: [{ x: -ex, z: -ez }, { x: ex, z: -ez }, { x: -ex, z: ez }, { x: ex, z: ez }]  // 四隅
+            };
+            return layouts[Math.min(Math.max(n, 1), 4)];
+        }
+
+        function setupMatch(slots) {
+            const layout = getSpawnLayout(slots.length);
+            slots.forEach((slot, i) => {
+                const e = createEraser(layout[i], eraserColors[slot % eraserColors.length], slot);
+                e.mesh.position.copy(e.body.position);
+                e.netPos = new THREE.Vector3().copy(e.body.position);
+                e.netQuat = new THREE.Quaternion();
+                e.netActive = true;
+                e.snap = true;
+                erasersBySlot.set(slot, e);
+            });
+            myEraser = erasersBySlot.get(mySlot) || null;
+            if (myEraser) ownRing.material.color.setHex(myEraser.color);
+        }
+
+        function endMatch() {
+            for (const e of erasers) {
+                scene.remove(e.mesh);
+                e.mesh.traverse((child) => {
+                    if (child !== e.mesh && child.material) child.material.dispose();
+                });
+                if (e.mesh.material) e.mesh.material.dispose();
+                if (!e.respawning && !e.removed) world.removeBody(e.body);
+            }
+            erasers.length = 0;
+            erasersBySlot.clear();
+            myEraser = null;
+            gameStarted = false;
+            isDragging = false;
+            line.visible = false;
+            ownRing.visible = false;
+            $('hud').style.display = 'none';
+            uiRoot.classList.remove('hidden');
+        }
+
+        // ホスト：発射の適用（ゲストからの入力もここを通す）
+        function applyLaunch(e, vx, vz) {
+            if (!e || e.removed || e.respawning) return;
+            if (!Number.isFinite(vx) || !Number.isFinite(vz)) return;
+            const raw = Math.hypot(vx, vz);
+            if (raw < 1e-6) return;
+            const s = Math.min(raw, MAX_SPEED);
+            e.body.velocity.set(vx / raw * s, 0, vz / raw * s);
+            e.body.angularVelocity.set(
+                (Math.random() - 0.5) * 0.5,
+                (Math.random() - 0.5) * 1.0,
+                (Math.random() - 0.5) * 0.5
+            );
+            e.stopTimer = 0;
+        }
+
+        // ホスト：落下 → 見えなくして復帰待ち
+        function knockOut(e) {
+            e.respawning = true;
+            e.respawnTimer = RESPAWN_DELAY;
+            e.mesh.visible = false;
+            e.body.velocity.set(0, 0, 0);
+            e.body.angularVelocity.set(0, 0, 0);
+            world.removeBody(e.body);
+        }
+
+        // ホスト：元の位置に他の消しゴムがいないか（重なって復帰すると暴れるため）
+        function spawnClear(e) {
+            const minDist = ERASER_LONG * 1.6;
+            for (const o of erasers) {
+                if (o === e || o.removed || o.respawning) continue;
+                const d = Math.hypot(o.body.position.x - e.initialPos.x, o.body.position.z - e.initialPos.z);
+                if (d < minDist) return false;
+            }
+            return true;
+        }
+
+        function respawn(e) {
+            e.body.position.set(e.initialPos.x, e.initialPos.y, e.initialPos.z);
+            e.body.quaternion.set(0, 0, 0, 1);
+            e.body.velocity.set(0, 0, 0);
+            e.body.angularVelocity.set(0, 0, 0);
+            world.addBody(e.body);
+            e.body.wakeUp();
+            e.mesh.position.copy(e.body.position);
+            e.mesh.quaternion.copy(e.body.quaternion);
+            e.mesh.visible = true;
+            e.respawning = false;
+            e.stopTimer = 0;
+        }
+
+        // ホスト：退出したプレイヤーの消しゴムを盤面から外す
+        function removePlayerEraser(slot) {
+            const e = erasersBySlot.get(slot);
+            if (!e || e.removed) return;
+            if (!e.respawning) world.removeBody(e.body);
+            e.removed = true;
+            e.mesh.visible = false;
+        }
+
+        // ホスト → 全員：盤面のスナップショット
+        function broadcastState() {
+            if (hostConns.size === 0) return;
+            const list = erasers.map((e) => {
+                const active = !(e.removed || e.respawning);
+                const p = e.body.position, q = e.body.quaternion;
+                return [e.slot, active ? 1 : 0, p.x, p.y, p.z, q.x, q.y, q.z, q.w];
+            });
+            for (const conn of hostConns.values()) {
+                if (conn.open) conn.send({ type: 'state', e: list });
+            }
+        }
+
+        // ゲスト：受け取った盤面を目標値として保存（描画側でなめらかに追従）
+        function applyState(list) {
+            if (!Array.isArray(list)) return;
+            for (const s of list) {
+                const e = erasersBySlot.get(s[0]);
+                if (!e) continue;
+                e.netActive = s[1] === 1;
+                e.netPos.set(s[2], s[3], s[4]);
+                e.netQuat.set(s[5], s[6], s[7], s[8]);
+            }
+        }
+
+        // ============================================
+        // アニメーションループ
+        // ============================================
+        const clock = new THREE.Clock();
+        let netAccum = 0;
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const clampedDelta = Math.min(delta, 1 / 30);
+
+            if (gameStarted && role === 'host') {
+                // ★ 固定タイムステップで物理を回す（貫通防止）
+                const FIXED_STEP = 1 / 120;
+                let remaining = clampedDelta;
+                while (remaining > 0) {
+                    const step = Math.min(remaining, FIXED_STEP);
+                    world.step(FIXED_STEP, step, 10);
+                    remaining -= step;
+                }
+
+                for (const e of erasers) {
+                    if (e.removed) continue;
+
+                    if (e.respawning) {
+                        e.respawnTimer -= clampedDelta;
+                        if (e.respawnTimer <= 0 && spawnClear(e)) respawn(e);
+                        continue;
+                    }
+
+                    resolvePenetration(e, clampedDelta);
+                    applySpeedDependentDamping(e.body, clampedDelta);
+
+                    // 机から落ちて 0.5m 下がったら、元の位置へ戻す
+                    if (e.body.position.y < FALL_KILL_Y) {
+                        knockOut(e);
+                        continue;
+                    }
+
+                    // 基本、操作していないときは止まる
+                    const speed = Math.sqrt(
+                        e.body.velocity.x ** 2 +
+                        e.body.velocity.y ** 2 +
+                        e.body.velocity.z ** 2
+                    );
+                    const angSpeed = Math.sqrt(
+                        e.body.angularVelocity.x ** 2 +
+                        e.body.angularVelocity.y ** 2 +
+                        e.body.angularVelocity.z ** 2
+                    );
+                    const onDesk = e.body.position.y < eraserSize.height + 0.05;
+
+                    if (speed < AUTO_STOP_SPEED && angSpeed < AUTO_STOP_ANG_SPEED && onDesk) {
+                        e.stopTimer += clampedDelta;
+                        if (e.stopTimer >= AUTO_STOP_TIME) {
+                            e.body.velocity.set(0, 0, 0);
+                            e.body.angularVelocity.set(0, 0, 0);
+                        }
+                    } else {
+                        e.stopTimer = 0;
+                    }
+
+                    e.mesh.position.copy(e.body.position);
+                    e.mesh.quaternion.copy(e.body.quaternion);
+                }
+
+                netAccum += delta;
+                if (netAccum >= NET_SEND_INTERVAL) {
+                    netAccum = 0;
+                    broadcastState();
+                }
+            } else if (gameStarted && role === 'guest') {
+                const alpha = 1 - Math.exp(-delta * 25);
+                for (const e of erasers) {
+                    e.mesh.visible = e.netActive;
+                    if (!e.netActive) { e.snap = true; continue; }
+                    if (e.snap || e.mesh.position.distanceTo(e.netPos) > 0.2) {
+                        e.mesh.position.copy(e.netPos);
+                        e.mesh.quaternion.copy(e.netQuat);
+                        e.snap = false;
+                    } else {
+                        e.mesh.position.lerp(e.netPos, alpha);
+                        e.mesh.quaternion.slerp(e.netQuat, alpha);
+                    }
+                }
+            }
+
+            // 自分の消しゴムの目印と照準線
+            if (gameStarted && myEraser) {
+                const p = myEraser.mesh.position;
+                ownRing.visible = myEraser.mesh.visible &&
+                    Math.abs(p.x) < DESK_WIDTH / 2 && Math.abs(p.z) < DESK_DEPTH / 2 && p.y > 0;
+                if (ownRing.visible) ownRing.position.set(p.x, 0.0008, p.z);
+            } else {
+                ownRing.visible = false;
+            }
+            updateAimLine();
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+
+        // ============================================
+        // メニュー / ロビー（PeerJS・4桁ルーム番号・最大4人）
+        // ============================================
+        const MAX_PLAYERS = 4;
+        const PEER_PREFIX = 'keshigomu-';   // 公開ブローカー上でIDが衝突しにくいように接頭辞を付ける
+
+        const $ = (id) => document.getElementById(id);
+        const uiRoot = $('ui');
+        const codeInput = $('code-input');
+        const btnJoin = $('btn-join');
+        const entryMsg = $('entry-msg');
+        const btnBegin = $('btn-begin');
+
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id));
+        }
+        function setEntryMsg(text) { entryMsg.textContent = text || ''; }
+
+        let peer = null;
+        let role = null;            // 'host' | 'guest'
+        let mySlot = 0;
+        let roster = [true, false, false, false];
+        let hostConns = new Map();  // ホスト用: slot -> DataConnection
+        let hostConn = null;        // ゲスト用: ホストへの接続
+
+        function colorCss(i) {
+            return '#' + eraserColors[i % eraserColors.length].toString(16).padStart(6, '0');
+        }
+
+        function renderLobby() {
+            const count = roster.filter(Boolean).length;
+            $('slots').innerHTML = roster.map((on, i) => {
+                const dot = `<span class="dot" style="background:${on ? colorCss(i) : '#555'}"></span>`;
+                if (!on) return `<div class="slot">${dot}<span class="tag">待機中…</span></div>`;
+                const tags = [i === 0 ? 'ホスト' : '', i === mySlot ? 'あなた' : ''].filter(Boolean).join(' / ');
+                return `<div class="slot filled">${dot}<span class="name">P${i + 1}</span><span class="tag">${tags}</span></div>`;
+            }).join('');
+
+            if (role === 'host') {
+                btnBegin.style.display = '';
+                btnBegin.disabled = count < 2;
+                $('lobby-status').textContent = count < 2
+                    ? `この番号を友だちに伝えてください（${count}/${MAX_PLAYERS}）`
+                    : `${count}/${MAX_PLAYERS}人 参加中`;
+            } else {
+                btnBegin.style.display = 'none';
+                $('lobby-status').textContent = `ホストの開始を待っています（${count}/${MAX_PLAYERS}）`;
+            }
+        }
+
+        function enterLobby(code) {
+            $('room-code').textContent = code;
+            renderLobby();
+            showScreen('screen-lobby');
+        }
+
+        function cleanup() {
+            const p = peer;
+            peer = null; role = null; hostConn = null;
+            hostConns = new Map();
+            roster = [true, false, false, false];
+            mySlot = 0;
+            if (p) { try { p.destroy(); } catch (e) {} }
+        }
+
+        function backToEntry(msg) {
+            endMatch();
+            cleanup();
+            setEntryMsg(msg);
+            showScreen('screen-entry');
+        }
+
+        function startGame(slots) {
+            if (!Array.isArray(slots) || slots.length === 0) return;
+            gameStarted = true;
+            setupMatch(slots);
+            $('hud-dot').style.background = colorCss(mySlot);
+            $('hud-text').textContent = 'あなた: P' + (mySlot + 1);
+            $('hud').style.display = 'flex';
+            uiRoot.classList.add('hidden');
+        }
+
+        // ---------- ホスト ----------
+        function broadcastRoster() {
+            renderLobby();
+            for (const conn of hostConns.values()) {
+                if (conn.open) conn.send({ type: 'roster', roster });
+            }
+        }
+
+        function onGuestConnection(conn) {
+            conn.on('open', () => {
+                const slot = roster.findIndex(on => !on);
+                if (slot < 0 || gameStarted) {
+                    conn.send({ type: 'full', started: gameStarted });
+                    setTimeout(() => conn.close(), 300);
+                    return;
+                }
+                roster[slot] = true;
+                hostConns.set(slot, conn);
+                conn.send({ type: 'welcome', slot });
+                broadcastRoster();
+
+                conn.on('data', (msg) => {
+                    if (msg && msg.type === 'launch' && gameStarted) {
+                        applyLaunch(erasersBySlot.get(slot), msg.vx, msg.vz);   // slotは接続から決める（なりすまし防止）
+                    }
+                });
+
+                conn.on('close', () => {
+                    if (hostConns.get(slot) === conn) {
+                        hostConns.delete(slot);
+                        roster[slot] = false;
+                        if (gameStarted) removePlayerEraser(slot);
+                        broadcastRoster();
+                    }
+                });
+            });
+        }
+
+        function createRoom(attempt = 0) {
+            cleanup();
+            setEntryMsg('');
+            const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+            const p = new Peer(PEER_PREFIX + code);
+            peer = p;
+            role = 'host';
+
+            p.on('open', () => {
+                if (peer !== p) return;
+                enterLobby(code);
+            });
+            p.on('connection', onGuestConnection);
+            p.on('error', (err) => {
+                if (peer !== p) return;
+                if (err.type === 'unavailable-id' && attempt < 8) {
+                    createRoom(attempt + 1);   // 番号が使用中なら別の番号で再試行
+                } else {
+                    backToEntry('部屋を作れませんでした（' + err.type + '）');
+                }
+            });
+        }
+
+        // ---------- ゲスト ----------
+        function joinRoom(code) {
+            cleanup();
+            setEntryMsg('接続中…');
+            const p = new Peer();
+            peer = p;
+            role = 'guest';
+            let joined = false;
+
+            const timer = setTimeout(() => {
+                if (peer === p && !joined) backToEntry('接続がタイムアウトしました');
+            }, 10000);
+
+            p.on('open', () => {
+                if (peer !== p) return;
+                const conn = p.connect(PEER_PREFIX + code, { reliable: true });
+                hostConn = conn;
+
+                conn.on('data', (msg) => {
+                    if (peer !== p || !msg) return;
+                    if (msg.type === 'welcome') {
+                        joined = true;
+                        clearTimeout(timer);
+                        mySlot = msg.slot;
+                        enterLobby(code);
+                    } else if (msg.type === 'roster') {
+                        roster = msg.roster;
+                        renderLobby();
+                    } else if (msg.type === 'full') {
+                        clearTimeout(timer);
+                        backToEntry(msg.started ? 'この部屋はすでに始まっています' : 'この部屋は満員です');
+                    } else if (msg.type === 'start') {
+                        startGame(msg.slots);
+                    } else if (msg.type === 'state') {
+                        applyState(msg.e);
+                    }
+                });
+                conn.on('close', () => {
+                    clearTimeout(timer);
+                    if (peer !== p) return;
+                    backToEntry('ホストが退出しました');
+                });
+            });
+            p.on('error', (err) => {
+                if (peer !== p) return;
+                clearTimeout(timer);
+                backToEntry(err.type === 'peer-unavailable'
+                    ? '部屋が見つかりません'
+                    : '接続できませんでした（' + err.type + '）');
+            });
+        }
+
+        // ---------- ボタン ----------
+        $('btn-start').addEventListener('click', () => { setEntryMsg(''); showScreen('screen-entry'); });
+        $('btn-entry-back').addEventListener('click', () => { setEntryMsg(''); showScreen('screen-menu'); });
+        $('btn-create').addEventListener('click', () => createRoom());
+        $('btn-leave').addEventListener('click', () => backToEntry(''));
+        btnBegin.addEventListener('click', () => {
+            if (role !== 'host') return;
+            const slots = [];
+            roster.forEach((on, i) => { if (on) slots.push(i); });
+            for (const conn of hostConns.values()) {
+                if (conn.open) conn.send({ type: 'start', slots });
+            }
+            startGame(slots);
+        });
+
+        codeInput.addEventListener('input', () => {
+            codeInput.value = codeInput.value.replace(/[^0-9]/g, '').slice(0, 4);
+            btnJoin.disabled = codeInput.value.length !== 4;
+        });
+        codeInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !btnJoin.disabled) btnJoin.click();
+        });
+        btnJoin.addEventListener('click', () => joinRoom(codeInput.value));
+
+        window.addEventListener('beforeunload', () => { if (peer) peer.destroy(); });
+
+        animate();
+    </script>
+</body>
+</html>
