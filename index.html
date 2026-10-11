@@ -89,6 +89,19 @@
             font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif; pointer-events: none;
         }
         #hud-dot { width: 20px; height: 12px; border-radius: 4px; background: #888; }
+        .stepper { display: flex; align-items: center; gap: 24px; }
+        #solo-count { font-size: 72px; font-weight: 800; min-width: 2ch; line-height: 1; font-variant-numeric: tabular-nums; }
+        .btn.round { min-width: 0; width: 56px; height: 56px; padding: 0; font-size: 28px; border-radius: 50%; line-height: 1; }
+        #btn-quit {
+            position: fixed; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
+            z-index: 5; display: none; min-width: 0; padding: 6px 14px; font-size: 14px;
+            background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.5); border-radius: 999px;
+        }
+        @media (max-height: 520px) {
+            #solo-count { font-size: 44px; }
+            .btn.round { width: 44px; height: 44px; font-size: 22px; }
+            .stepper { gap: 16px; }
+        }
 
         #ui { overflow-y: auto; }
         @media (max-height: 520px) {
@@ -123,6 +136,8 @@
 
     <div id="hud"><span id="hud-dot"></span><span id="hud-text"></span></div>
 
+    <button id="btn-quit" class="btn">やめる</button>
+
     <div id="rotate-notice"><span class="icon">📱</span><p>画面を横向きにしてください</p></div>
 
     <div id="ui">
@@ -132,7 +147,8 @@
         </div>
 
         <div id="screen-entry" class="screen">
-            <h2>オンライン対戦</h2>
+            <button id="btn-solo" class="btn primary">ひとりで遊ぶ</button>
+            <div class="divider">オンライン対戦（最大4人）</div>
             <div class="divider">部屋をつくる（番号は自由に決められます・空欄でおまかせ）</div>
             <div class="join-row">
                 <input id="create-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="----" autocomplete="off">
@@ -145,6 +161,18 @@
             </div>
             <p id="entry-msg" class="msg"></p>
             <button id="btn-entry-back" class="btn ghost">もどる</button>
+        </div>
+
+        <div id="screen-solo" class="screen">
+            <h2>ひとりで遊ぶ</h2>
+            <div class="label">消しゴムの数</div>
+            <div class="stepper">
+                <button id="btn-count-minus" class="btn round">−</button>
+                <div id="solo-count">5</div>
+                <button id="btn-count-plus" class="btn round">＋</button>
+            </div>
+            <button id="btn-solo-start" class="btn primary">はじめる</button>
+            <button id="btn-solo-back" class="btn ghost">もどる</button>
         </div>
 
         <div id="screen-lobby" class="screen">
@@ -582,13 +610,14 @@
         }
 
         // ============================================
-        // 操作（自分の消しゴムだけを引っ張って発射）
+        // 操作（対戦では自分の消しゴムだけ / ひとりプレイでは全部の消しゴムを引っ張って発射）
         // ============================================
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
         let isDragging = false;
-        const dragPointer = new THREE.Vector3();   // 机の平面上のポインタ位置
+        let dragEraser = null;                       // いま引っ張っている消しゴム
+        const dragPointer = new THREE.Vector3();     // 机の平面上のポインタ位置
         const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
         const lineGeometry = new THREE.BufferGeometry();
@@ -600,7 +629,7 @@
 
         const maxPullDistance = 0.15;
 
-        // 自分の消しゴムの足元に出すリング（どれが自分か分かるように）
+        // 自分の消しゴムの足元に出すリング（対戦のとき、どれが自分か分かるように）
         const ownRing = new THREE.Mesh(
             new THREE.RingGeometry(0.030, 0.034, 40),
             new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false })
@@ -617,23 +646,38 @@
         }
 
         // 消しゴムの現在位置 → ポインタ の逆向きが発射方向
-        function pullFromPointer() {
-            const a = myEraser.mesh.position;
+        function pullFrom(e) {
+            const a = e.mesh.position;
             const dx = a.x - dragPointer.x;
             const dz = a.z - dragPointer.z;
             return { dx, dz, len: Math.hypot(dx, dz) };
         }
 
-        function canControl() {
-            return gameStarted && myEraser && !myEraser.removed && !myEraser.respawning;
+        function controllable(e) {
+            return gameStarted && e && !e.removed && !e.respawning;
         }
 
         function startDrag(clientX, clientY) {
-            if (!canControl()) return;
+            if (!gameStarted) return;
             if (!pointerOnPlane(clientX, clientY, dragPointer)) return;
-            const p = myEraser.mesh.position;
-            const dist = Math.hypot(dragPointer.x - p.x, dragPointer.z - p.z);
-            if (dist > Math.max(eraserSize.width, eraserSize.depth) * 1.6) return;
+            const hitRadius = Math.max(eraserSize.width, eraserSize.depth) * 1.6;
+
+            let target = null;
+            if (role === 'solo') {
+                let best = hitRadius;
+                for (const e of erasers) {
+                    if (!controllable(e)) continue;
+                    const p = e.mesh.position;
+                    const d = Math.hypot(dragPointer.x - p.x, dragPointer.z - p.z);
+                    if (d < best) { best = d; target = e; }
+                }
+            } else if (controllable(myEraser)) {
+                const p = myEraser.mesh.position;
+                if (Math.hypot(dragPointer.x - p.x, dragPointer.z - p.z) <= hitRadius) target = myEraser;
+            }
+            if (!target) return;
+
+            dragEraser = target;
             isDragging = true;
             renderer.domElement.style.cursor = 'grabbing';
         }
@@ -645,15 +689,17 @@
 
         function endDrag(clientX, clientY) {
             if (!isDragging) return;
+            const target = dragEraser;
             isDragging = false;
+            dragEraser = null;
             line.visible = false;
             renderer.domElement.style.cursor = 'default';
-            if (!canControl()) return;
+            if (!controllable(target)) return;
 
             if (clientX !== undefined && clientY !== undefined) {
                 pointerOnPlane(clientX, clientY, dragPointer);
             }
-            const { dx, dz, len } = pullFromPointer();
+            const { dx, dz, len } = pullFrom(target);
             const pullDistance = Math.min(len, maxPullDistance);
             if (pullDistance <= 0.01) return;
 
@@ -661,17 +707,17 @@
             const vx = dx / len * speed;
             const vz = dz / len * speed;
 
-            if (role === 'host') {
-                applyLaunch(myEraser, vx, vz);
-            } else if (hostConn && hostConn.open) {
-                hostConn.send({ type: 'launch', vx, vz });   // 実際の物理はホストが計算する
+            if (role === 'guest') {
+                if (hostConn && hostConn.open) hostConn.send({ type: 'launch', vx, vz });   // 実際の物理はホストが計算する
+            } else {
+                applyLaunch(target, vx, vz);   // ホスト / ひとりプレイは自分で計算
             }
         }
 
         function updateAimLine() {
-            if (!isDragging || !canControl()) { line.visible = false; return; }
-            const a = myEraser.mesh.position;
-            const { dx, dz, len } = pullFromPointer();
+            if (!isDragging || !controllable(dragEraser)) { line.visible = false; return; }
+            const a = dragEraser.mesh.position;
+            const { dx, dz, len } = pullFrom(dragEraser);
             if (len < 1e-6) { line.visible = false; return; }
             const d = Math.min(len, maxPullDistance);
             lineGeometry.setFromPoints([
@@ -764,10 +810,36 @@
             return layouts[Math.min(Math.max(n, 1), 4)];
         }
 
+        // ひとりプレイ：個数に応じて机の上に均等に並べる
+        function getGridLayout(n) {
+            const aspect = DESK_WIDTH / DESK_DEPTH;
+            const cols = Math.min(n, Math.ceil(Math.sqrt(n * aspect)));
+            const rows = Math.ceil(n / cols);
+            const ex = DESK_WIDTH / 2 - 0.10;
+            const ez = DESK_DEPTH / 2 - 0.08;
+            const out = [];
+            for (let i = 0; i < n; i++) {
+                const r = Math.floor(i / cols);
+                const inRow = (r === rows - 1) ? (n - r * cols) : cols;
+                const c = i - r * cols;
+                const x = inRow === 1 ? 0 : -ex + (2 * ex) * c / (inRow - 1);
+                const z = rows === 1 ? 0 : -ez + (2 * ez) * r / (rows - 1);
+                out.push({ x, z });
+            }
+            return out;
+        }
+
+        function colorForIndex(i) {
+            if (i < eraserColors.length) return eraserColors[i];
+            return new THREE.Color().setHSL((i * 0.137) % 1, 0.75, 0.62).getHex();
+        }
+
         function setupMatch(slots) {
-            const layout = getSpawnLayout(slots.length);
+            const solo = role === 'solo';
+            const layout = solo ? getGridLayout(slots.length) : getSpawnLayout(slots.length);
             slots.forEach((slot, i) => {
-                const e = createEraser(layout[i], eraserColors[slot % eraserColors.length], slot);
+                const color = solo ? colorForIndex(i) : eraserColors[slot % eraserColors.length];
+                const e = createEraser(layout[i], color, slot);
                 e.mesh.position.copy(e.body.position);
                 e.netPos = new THREE.Vector3().copy(e.body.position);
                 e.netQuat = new THREE.Quaternion();
@@ -775,7 +847,7 @@
                 e.snap = true;
                 erasersBySlot.set(slot, e);
             });
-            myEraser = erasersBySlot.get(mySlot) || null;
+            myEraser = solo ? null : (erasersBySlot.get(mySlot) || null);
             if (myEraser) ownRing.material.color.setHex(myEraser.color);
         }
 
@@ -796,6 +868,7 @@
             line.visible = false;
             ownRing.visible = false;
             $('hud').style.display = 'none';
+            $('btn-quit').style.display = 'none';
             uiRoot.classList.remove('hidden');
         }
 
@@ -896,7 +969,7 @@
             const delta = clock.getDelta();
             const clampedDelta = Math.min(delta, 1 / 30);
 
-            if (gameStarted && role === 'host') {
+            if (gameStarted && (role === 'host' || role === 'solo')) {
                 // ★ 固定タイムステップで物理を回す（貫通防止）
                 const FIXED_STEP = 1 / 120;
                 let remaining = clampedDelta;
@@ -1069,9 +1142,16 @@
             if (!Array.isArray(slots) || slots.length === 0) return;
             gameStarted = true;
             setupMatch(slots);
-            $('hud-dot').style.background = colorCss(mySlot);
-            $('hud-text').textContent = 'あなた: P' + (mySlot + 1);
+            if (role === 'solo') {
+                $('hud-dot').style.display = 'none';
+                $('hud-text').textContent = 'ひとりで遊ぶ（' + slots.length + '個）';
+            } else {
+                $('hud-dot').style.display = '';
+                $('hud-dot').style.background = colorCss(mySlot);
+                $('hud-text').textContent = 'あなた: P' + (mySlot + 1);
+            }
             $('hud').style.display = 'flex';
+            $('btn-quit').style.display = 'block';
             uiRoot.classList.add('hidden');
         }
 
@@ -1269,6 +1349,45 @@
         });
         window.addEventListener('orientationchange', () => {
             setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
+        });
+
+
+        // ============================================
+        // ひとりで遊ぶ（消しゴムの数を選べる）
+        // ============================================
+        const SOLO_MIN = 1;
+        const SOLO_MAX = 12;
+        let soloCount = 5;
+
+        function renderSoloCount() {
+            $('solo-count').textContent = soloCount;
+            $('btn-count-minus').disabled = soloCount <= SOLO_MIN;
+            $('btn-count-plus').disabled = soloCount >= SOLO_MAX;
+        }
+
+        function startSolo(n) {
+            cleanup();
+            role = 'solo';
+            mySlot = 0;
+            startGame(Array.from({ length: n }, (_, i) => i));
+        }
+
+        $('btn-solo').addEventListener('click', () => { renderSoloCount(); showScreen('screen-solo'); });
+        $('btn-solo-back').addEventListener('click', () => showScreen('screen-entry'));
+        $('btn-count-minus').addEventListener('click', () => { soloCount = Math.max(SOLO_MIN, soloCount - 1); renderSoloCount(); });
+        $('btn-count-plus').addEventListener('click', () => { soloCount = Math.min(SOLO_MAX, soloCount + 1); renderSoloCount(); });
+        $('btn-solo-start').addEventListener('click', () => startSolo(soloCount));
+
+        // 試合中の「やめる」
+        $('btn-quit').addEventListener('click', () => {
+            if (role === 'solo') {
+                endMatch();
+                cleanup();
+                renderSoloCount();
+                showScreen('screen-solo');
+            } else if (window.confirm('対戦をやめて退出しますか？')) {
+                backToEntry('');
+            }
         });
 
         animate();
