@@ -59,12 +59,12 @@
         .btn.ghost { border-color: transparent; font-size: 15px; opacity: .8; }
         .divider { font-size: 13px; opacity: .6; }
         .join-row { display: flex; gap: 10px; align-items: center; }
-        #code-input {
+        #code-input, #create-code-input {
             width: 140px; font: inherit; font-size: 28px; font-weight: 700; text-align: center;
             letter-spacing: .3em; padding: 8px 4px 8px 14px; border-radius: 12px;
             border: 2px solid #fff; background: rgba(255,255,255,.08); color: #fff; outline: none;
         }
-        #code-input:focus { border-color: #6bcbff; }
+        #code-input:focus, #create-code-input:focus { border-color: #6bcbff; }
         .msg { min-height: 1.4em; margin: 0; font-size: 14px; color: #ffb3b3; }
         .label { font-size: 14px; opacity: .7; letter-spacing: .2em; }
         #room-code {
@@ -100,7 +100,7 @@
             #room-code { font-size: 44px; }
             .slots { grid-template-columns: repeat(4, 1fr); gap: 6px; }
             .slot { padding: 8px; font-size: 13px; flex-wrap: wrap; }
-            #code-input { font-size: 22px; width: 120px; padding: 6px 4px 6px 12px; }
+            #code-input, #create-code-input { font-size: 22px; width: 120px; padding: 6px 4px 6px 12px; }
             .divider, #lobby-status, .msg { font-size: 12px; }
         }
 
@@ -133,7 +133,11 @@
 
         <div id="screen-entry" class="screen">
             <h2>オンライン対戦</h2>
-            <button id="btn-create" class="btn primary">部屋をつくる</button>
+            <div class="divider">部屋をつくる（番号は自由に決められます・空欄でおまかせ）</div>
+            <div class="join-row">
+                <input id="create-code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="----" autocomplete="off">
+                <button id="btn-create" class="btn primary">部屋をつくる</button>
+            </div>
             <div class="divider">または 4桁の番号で入る</div>
             <div class="join-row">
                 <input id="code-input" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="0000" autocomplete="off">
@@ -1109,10 +1113,11 @@
             });
         }
 
-        function createRoom(attempt = 0) {
+        // customCode が指定されていればその番号で作成、なければ乱数
+        function createRoom(customCode = null, attempt = 0) {
             cleanup();
             setEntryMsg('');
-            const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+            const code = customCode || String(Math.floor(Math.random() * 10000)).padStart(4, '0');
             const p = new Peer(PEER_PREFIX + code);
             peer = p;
             role = 'host';
@@ -1124,8 +1129,14 @@
             p.on('connection', onGuestConnection);
             p.on('error', (err) => {
                 if (peer !== p) return;
-                if (err.type === 'unavailable-id' && attempt < 8) {
-                    createRoom(attempt + 1);   // 番号が使用中なら別の番号で再試行
+                if (err.type === 'unavailable-id') {
+                    if (customCode) {
+                        backToEntry('その番号はすでに使われています。別の番号にしてください');
+                    } else if (attempt < 8) {
+                        createRoom(null, attempt + 1);   // おまかせ番号が使用中なら別の番号で再試行
+                    } else {
+                        backToEntry('部屋を作れませんでした（' + err.type + '）');
+                    }
                 } else {
                     backToEntry('部屋を作れませんでした（' + err.type + '）');
                 }
@@ -1187,7 +1198,20 @@
         // ---------- ボタン ----------
         $('btn-start').addEventListener('click', () => { setEntryMsg(''); showScreen('screen-entry'); });
         $('btn-entry-back').addEventListener('click', () => { setEntryMsg(''); showScreen('screen-menu'); });
-        $('btn-create').addEventListener('click', () => createRoom());
+        const createInput = $('create-code-input');
+        createInput.addEventListener('input', () => {
+            createInput.value = createInput.value.replace(/[^0-9]/g, '').slice(0, 4);
+            setEntryMsg('');
+        });
+        createInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') $('btn-create').click();
+        });
+        $('btn-create').addEventListener('click', () => {
+            const v = createInput.value;
+            if (v.length === 0) { createRoom(); return; }
+            if (v.length !== 4) { setEntryMsg('番号は4桁で入力してください（空欄ならおまかせ）'); return; }
+            createRoom(v);
+        });
         $('btn-leave').addEventListener('click', () => backToEntry(''));
         btnBegin.addEventListener('click', () => {
             if (role !== 'host') return;
