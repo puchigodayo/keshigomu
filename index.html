@@ -2,14 +2,24 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>消しゴム</title>
     <style>
+        html, body { height: 100%; }
         body {
             margin: 0;
             overflow: hidden;
             font-family: 'Arial', sans-serif;
+            touch-action: none;
+            overscroll-behavior: none;
+            -webkit-user-select: none; user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
         }
+        canvas { display: block; }
 
         /* ===== メニュー / ロビーUI ===== */
         #ui {
@@ -73,17 +83,47 @@
         .slot .tag { font-size: 12px; opacity: .75; }
         #lobby-status { margin: 0; font-size: 14px; opacity: .8; min-height: 1.4em; }
         #hud {
-            position: fixed; top: 12px; left: 12px; z-index: 5; display: none;
+            position: fixed; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); z-index: 5; display: none;
             align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px;
             background: rgba(0,0,0,.5); color: #fff; font-size: 14px; font-weight: 700;
             font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif; pointer-events: none;
         }
         #hud-dot { width: 20px; height: 12px; border-radius: 4px; background: #888; }
+
+        #ui { overflow-y: auto; }
+        @media (max-height: 520px) {
+            .screen { gap: 8px; padding: 8px 16px; width: min(640px, 100%); }
+            h1 { font-size: 56px; margin: 0 0 4px; }
+            h2 { font-size: 18px; }
+            .btn { padding: 8px 20px; font-size: 16px; min-width: 120px; }
+            #btn-start { font-size: 22px; padding: 10px 44px; }
+            #room-code { font-size: 44px; }
+            .slots { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+            .slot { padding: 8px; font-size: 13px; flex-wrap: wrap; }
+            #code-input { font-size: 22px; width: 120px; padding: 6px 4px 6px 12px; }
+            .divider, #lobby-status, .msg { font-size: 12px; }
+        }
+
+        /* スマホを縦持ちしているときは横向きを促して全面を覆う */
+        #rotate-notice {
+            position: fixed; inset: 0; z-index: 30; display: none;
+            flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+            background: #141414; color: #fff; text-align: center;
+            font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+        }
+        #rotate-notice .icon { font-size: 64px; display: inline-block; animation: rot 2.4s ease-in-out infinite; }
+        #rotate-notice p { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .06em; }
+        @keyframes rot { 0%, 20% { transform: rotate(0deg); } 60%, 100% { transform: rotate(-90deg); } }
+        @media (orientation: portrait) and (pointer: coarse) {
+            #rotate-notice { display: flex; }
+        }
     </style>
 </head>
 <body>
 
     <div id="hud"><span id="hud-dot"></span><span id="hud-text"></span></div>
+
+    <div id="rotate-notice"><span class="icon">📱</span><p>画面を横向きにしてください</p></div>
 
     <div id="ui">
         <div id="screen-menu" class="screen active">
@@ -1169,6 +1209,43 @@
         btnJoin.addEventListener('click', () => joinRoom(codeInput.value));
 
         window.addEventListener('beforeunload', () => { if (peer) peer.destroy(); });
+
+
+        // ============================================
+        // スマホ：横向きの全画面にする
+        //   ※ 全画面化はボタンのタップ（ユーザー操作）の中でしか許可されない
+        //   ※ 向きのロックは Android Chrome 等で全画面中のみ可能。
+        //      iPhone(Safari) は両方とも非対応のため、縦持ち時は案内画面を表示する
+        // ============================================
+        const isTouchDevice = window.matchMedia('(pointer: coarse)').matches;
+
+        function enterLandscapeFullscreen() {
+            if (!isTouchDevice) return;
+            const el = document.documentElement;
+            let fs = null;
+            try {
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    if (el.requestFullscreen) fs = el.requestFullscreen({ navigationUI: 'hide' });
+                    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+                }
+            } catch (e) {}
+            const lock = () => {
+                try {
+                    if (screen.orientation && screen.orientation.lock) {
+                        screen.orientation.lock('landscape').catch(() => {});
+                    }
+                } catch (e) {}
+            };
+            if (fs && fs.then) fs.then(lock).catch(() => {}); else lock();
+        }
+
+        // 画面内のどのボタンを押しても（全画面が解除されていれば）入り直す
+        uiRoot.addEventListener('click', (e) => {
+            if (e.target.closest('.btn')) enterLandscapeFullscreen();
+        });
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
+        });
 
         animate();
     </script>
