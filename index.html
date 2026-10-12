@@ -208,9 +208,10 @@
         const DESK_DEPTH  = 0.4;
         const DESK_THICKNESS = 0.02;
 
-        const ERASER_LONG  = 0.05 * 2 / 3;
-        const ERASER_SHORT = ERASER_LONG * 0.6;
-        const ERASER_HEIGHT = ERASER_LONG * 0.35;
+        // 実物（MONOなど）に近い 長さ:幅 ≒ 2.4:1 の比率。断面の大きさは従来と同程度にして転がりやすさを変えない
+        const ERASER_LONG  = 0.04;
+        const ERASER_SHORT = ERASER_LONG / 2.4;
+        const ERASER_HEIGHT = ERASER_SHORT * 0.68;
 
         const eraserSize = {
             width: ERASER_LONG,
@@ -253,8 +254,16 @@
         scene.background = new THREE.Color(0x1a1a1a);
 
         const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100);
-        camera.position.set(0, 1.0, 0.001);
-        camera.lookAt(0, 0, 0);
+        // 机が画面いっぱいに映るように、カメラの高さを画面の縦横比に合わせて決める
+        const DESK_VIEW_MARGIN = 1.10;   // 机の周りの余白（1.0 = ぴったり）
+        function fitCameraToDesk() {
+            const aspect = window.innerWidth / window.innerHeight;
+            const needH = Math.max(DESK_DEPTH * DESK_VIEW_MARGIN, (DESK_WIDTH * DESK_VIEW_MARGIN) / aspect);
+            const h = needH / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)));
+            camera.position.set(0, h, 0.001);
+            camera.lookAt(0, 0, 0);
+        }
+        fitCameraToDesk();
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -491,30 +500,218 @@
             eraserSize.height,
             eraserSize.depth
         );
-        const labelGeometry = new THREE.PlaneGeometry(
-            eraserSize.width * 0.7,
-            eraserSize.depth * 0.6
-        );
+        // ============================================
+        // 消しゴムのデザイン（上面・側面のテクスチャをキャンバスで描く）
+        //   P1: MONO / P2: Arch / P3: Ain / P4: 無印(黒・大)
+        // ============================================
+        const FONT_SANS = '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif';
 
-        function createEraser(position, color, slot) {
-            const material = new THREE.MeshStandardMaterial({
-                color: color,
-                roughness: 0.75,
-                metalness: 0.02
-            });
-            const mesh = new THREE.Mesh(eraserGeometry, material);
+        // body: むき出しの消しゴムの色 / sleeveFrom〜To: 紙スリーブの範囲(長さ方向 0〜1)
+        // sideN / sideP: スリーブの奥側(-z)・手前側(+z)の側面の色
+        const ERASER_DESIGNS = [
+            { id: 'mono', name: 'MONO', accent: 0x2f5fd0, body: '#eceef0', sleeveFrom: 0.17, sleeveTo: 1.00, sideN: '#03378a', sideP: '#0a0c0b' },
+            { id: 'arch', name: 'Arch', accent: 0x1f8f4e, body: '#f5f4f2', sleeveFrom: 0.20, sleeveTo: 1.00, sideN: '#f3f2f0', sideP: '#f3f2f0' },
+            { id: 'ain',  name: 'Ain',  accent: 0x6a5fe0, body: '#e6edf0', sleeveFrom: 0.25, sleeveTo: 1.00, sideN: '#0a3466', sideP: '#0a3466' },
+            { id: 'muji', name: '無印', accent: 0xb5483a, body: '#1c1c1c', sleeveFrom: 0.14, sleeveTo: 0.86, sideN: '#d6c6b6', sideP: '#d6c6b6' }
+        ];
+
+        // 文字を中央/左/右揃えで描く（字間・横幅の自動縮小つき）
+        function drawText(g, text, x, y, size, o = {}) {
+            g.font = `${o.italic ? 'italic ' : ''}${o.weight || '700'} ${size}px ${FONT_SANS}`;
+            g.fillStyle = o.color || '#000';
+            g.textBaseline = 'middle';
+            g.textAlign = 'left';
+            const spacing = o.spacing || 0;
+            const widths = [];
+            let total = 0;
+            for (const ch of text) { const w = g.measureText(ch).width; widths.push(w); total += w + spacing; }
+            total -= spacing;
+            const scale = (o.maxW && total > o.maxW) ? o.maxW / total : 1;
+            g.save();
+            g.translate(x, y);
+            g.scale(scale, 1);
+            let px = o.align === 'left' ? 0 : (o.align === 'right' ? -total : -total / 2);
+            let i = 0;
+            for (const ch of text) { g.fillText(ch, px, 0); px += widths[i++] + spacing; }
+            g.restore();
+        }
+
+        function drawDragonfly(g, cx, cy, s) {
+            g.save();
+            g.translate(cx, cy);
+            g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineWidth = s * 0.07;
+            g.beginPath(); g.moveTo(-s * 0.5, 0); g.lineTo(s * 0.55, 0); g.stroke();
+            for (const sx of [-0.10, 0.22]) {
+                for (const sy of [-1, 1]) {
+                    g.beginPath();
+                    g.ellipse(sx * s, sy * s * 0.30, s * 0.34, s * 0.11, sy * -0.30, 0, Math.PI * 2);
+                    g.stroke();
+                }
+            }
+            g.beginPath(); g.arc(-s * 0.54, 0, s * 0.07, 0, Math.PI * 2); g.fill();
+            g.restore();
+        }
+
+        function drawMono(g, x0, x1, W, H) {
+            const sw = x1 - x0, cx = (x0 + x1) / 2;
+            g.fillStyle = '#03378a'; g.fillRect(x0, 0, sw, H * 0.34);
+            g.fillStyle = '#f4f6f8'; g.fillRect(x0, H * 0.34, sw, H * 0.34);
+            g.fillStyle = '#060807'; g.fillRect(x0, H * 0.68, sw, H * 0.32);
+            drawText(g, 'PLASTIC ERASER', cx, H * 0.17, H * 0.105, { color: '#fff', weight: '500', spacing: 2, maxW: sw * 0.78 });
+            drawText(g, 'MONO', cx, H * 0.51, H * 0.31, { color: '#050607', weight: '900', spacing: H * 0.05, maxW: sw * 0.80 });
+            drawDragonfly(g, x0 + sw * 0.15, H * 0.84, H * 0.14);
+            drawText(g, 'Tombow', x0 + sw * 0.25, H * 0.84, H * 0.13, { color: '#fff', weight: '400', align: 'left', maxW: sw * 0.34 });
+            drawText(g, 'PE-03A', x1 - sw * 0.05, H * 0.86, H * 0.075, { color: '#fff', weight: '500', align: 'right' });
+        }
+
+        function drawArch(g, x0, x1, W, H) {
+            const sw = x1 - x0;
+            const X = (t) => x0 + sw * t;
+            g.fillStyle = '#f8f6f7'; g.fillRect(x0, 0, sw, H);
+            // 発泡消しゴムらしい縦のスジ
+            g.strokeStyle = 'rgba(0,0,0,0.10)'; g.lineWidth = 3;
+            for (const t of [0.22, 0.40, 0.58, 0.76, 0.93]) {
+                g.beginPath(); g.moveTo(X(t), 0); g.lineTo(X(t), H); g.stroke();
+            }
+            // 緑の帯（上下が内側にくぼみ、左端が丸い）
+            g.fillStyle = '#034a2a';
+            g.beginPath();
+            g.moveTo(X(0.20), H * 0.04);
+            g.bezierCurveTo(X(0.42), H * 0.22, X(0.72), H * 0.22, X(1.0), H * 0.04);
+            g.lineTo(X(1.0), H * 0.96);
+            g.bezierCurveTo(X(0.72), H * 0.78, X(0.42), H * 0.78, X(0.20), H * 0.96);
+            g.bezierCurveTo(X(-0.10), H * 0.80, X(-0.10), H * 0.20, X(0.20), H * 0.04);
+            g.closePath(); g.fill();
+            // ライムグリーンの三日月ロゴ
+            g.fillStyle = '#e2f215';
+            const crescent = (x, h, w) => {
+                const yc = H * 0.5;
+                g.beginPath();
+                g.moveTo(x + w, yc - h / 2);
+                g.quadraticCurveTo(x - w * 0.9, yc, x + w, yc + h / 2);
+                g.quadraticCurveTo(x + w * 0.25, yc, x + w, yc - h / 2);
+                g.closePath(); g.fill();
+            };
+            crescent(X(0.115), H * 0.52, sw * 0.07);
+            crescent(X(0.215), H * 0.38, sw * 0.05);
+            crescent(X(0.300), H * 0.26, sw * 0.035);
+            drawText(g, 'アーチ', X(0.64), H * 0.30, H * 0.09, { color: '#ffe36a', weight: '800' });
+            drawText(g, 'Arch', X(0.68), H * 0.53, H * 0.29, { color: '#fff', weight: '900', maxW: sw * 0.44 });
+            drawText(g, 'FOAM ERASER', X(0.68), H * 0.76, H * 0.08, { color: '#fff', weight: '700', spacing: 3, maxW: sw * 0.44 });
+        }
+
+        function drawAin(g, x0, x1, W, H) {
+            const sw = x1 - x0;
+            const X = (t) => x0 + sw * t;
+            const grad = g.createLinearGradient(x0, 0, x1, H);
+            grad.addColorStop(0, '#0a3166'); grad.addColorStop(0.55, '#063e7b'); grad.addColorStop(1, '#1c5683');
+            g.fillStyle = grad; g.fillRect(x0, 0, sw, H);
+            // 背景の軌道のような細い楕円
+            g.strokeStyle = 'rgba(140,185,255,0.32)'; g.lineWidth = 2;
+            for (let i = 0; i < 3; i++) {
+                g.beginPath();
+                g.ellipse(X(0.55), H * 0.5, sw * (0.40 + i * 0.07), H * (0.30 + i * 0.10), -0.18, 0, Math.PI * 2);
+                g.stroke();
+            }
+            drawText(g, 'Pentel', X(0.06), H * 0.14, H * 0.10, { color: '#fff', weight: '800', align: 'left' });
+            drawText(g, 'HI-POLYMER', X(0.95), H * 0.14, H * 0.095, { color: '#fff', weight: '900', italic: true, align: 'right', spacing: 2, maxW: sw * 0.40 });
+            drawText(g, 'Ain', X(0.52), H * 0.47, H * 0.50, { color: '#fff', weight: '900', maxW: sw * 0.46 });
+            drawText(g, 'PLASTIC ERASER', X(0.05), H * 0.80, H * 0.072, { color: '#fff', weight: '500', align: 'left', maxW: sw * 0.34 });
+            drawText(g, '軽く消せる', X(0.42), H * 0.80, H * 0.15, { color: '#fff', weight: '900', align: 'left', maxW: sw * 0.43 });
+            drawText(g, 'タイプ', X(0.86), H * 0.84, H * 0.075, { color: '#fff', weight: '800', align: 'left', maxW: sw * 0.12 });
+        }
+
+        function drawMuji(g, x0, x1, W, H) {
+            const sw = x1 - x0;
+            const X = (t) => x0 + sw * t;
+            g.fillStyle = '#d6c6b6'; g.fillRect(x0, 0, sw, H);
+            // クラフト紙のざらつき
+            for (let i = 0; i < 2200; i++) {
+                g.fillStyle = `rgba(120,90,60,${Math.random() * 0.07})`;
+                g.fillRect(x0 + Math.random() * sw, Math.random() * H, 2, 2);
+            }
+            const brown = '#8f4a3f';
+            g.fillStyle = brown;
+            g.fillRect(X(0.05), H * 0.115, sw * 0.90, H * 0.026);
+            g.fillRect(X(0.05), H * 0.396, sw * 0.90, H * 0.009);
+            g.fillRect(X(0.05), H * 0.610, sw * 0.90, H * 0.026);
+            drawText(g, '消しゴム', X(0.07), H * 0.265, H * 0.15, { color: brown, weight: '800', align: 'left', spacing: 4 });
+            drawText(g, 'Eraser', X(0.07), H * 0.50, H * 0.11, { color: brown, weight: '400', align: 'left' });
+            drawText(g, '黒　大', X(0.93), H * 0.76, H * 0.095, { color: brown, weight: '700', align: 'right' });
+            drawText(g, 'Black L', X(0.93), H * 0.90, H * 0.095, { color: brown, weight: '500', align: 'right' });
+            // 小さなマーク
+            g.strokeStyle = brown; g.lineWidth = 3;
+            g.beginPath(); g.arc(X(0.74), H * 0.50, H * 0.05, 0, Math.PI * 2); g.stroke();
+            g.strokeRect(X(0.80) - H * 0.045, H * 0.50 - H * 0.045, H * 0.09, H * 0.09);
+        }
+
+        const DESIGN_DRAW = { mono: drawMono, arch: drawArch, ain: drawAin, muji: drawMuji };
+
+        function makeTopTexture(d) {
+            const W = 1200, H = 500;
+            const c = document.createElement('canvas');
+            c.width = W; c.height = H;
+            const g = c.getContext('2d');
+            g.fillStyle = d.body; g.fillRect(0, 0, W, H);
+            const x0 = W * d.sleeveFrom, x1 = W * d.sleeveTo;
+            DESIGN_DRAW[d.id](g, x0, x1, W, H);
+            // スリーブの縁（紙の厚みで生じる段差の影）
+            g.fillStyle = 'rgba(0,0,0,0.28)';
+            g.fillRect(x0 - 1, 0, 4, H);
+            if (d.sleeveTo < 1) g.fillRect(x1 - 3, 0, 4, H);
+            // 全体のつや（中央が少し明るい）
+            const shade = g.createLinearGradient(0, 0, 0, H);
+            shade.addColorStop(0, 'rgba(0,0,0,0.10)');
+            shade.addColorStop(0.5, 'rgba(255,255,255,0.07)');
+            shade.addColorStop(1, 'rgba(0,0,0,0.12)');
+            g.fillStyle = shade; g.fillRect(0, 0, W, H);
+            return finishTexture(c);
+        }
+
+        // 側面：むき出しの消しゴム部分とスリーブ部分を塗り分ける
+        // flip=true は -z 側の面。UVが左右反転するので描く向きも反転する
+        function makeSideTexture(d, flip) {
+            const W = 600, H = 220;
+            const c = document.createElement('canvas');
+            c.width = W; c.height = H;
+            const g = c.getContext('2d');
+            g.fillStyle = d.body; g.fillRect(0, 0, W, H);
+            let a = d.sleeveFrom, b = d.sleeveTo;
+            if (flip) { const na = 1 - b, nb = 1 - a; a = na; b = nb; }
+            g.fillStyle = flip ? d.sideN : d.sideP;
+            g.fillRect(W * a, 0, W * (b - a), H);
+            g.fillStyle = 'rgba(0,0,0,0.25)';
+            g.fillRect(W * a - 1, 0, 3, H);
+            if (b < 1) g.fillRect(W * b - 2, 0, 3, H);
+            return finishTexture(c);
+        }
+
+        function finishTexture(canvas) {
+            const t = new THREE.CanvasTexture(canvas);
+            t.colorSpace = THREE.SRGBColorSpace;
+            t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+            return t;
+        }
+
+        // BoxGeometry の面の順番: +x, -x, +y(上), -y, +z, -z
+        function buildDesignMaterials(d) {
+            const body = new THREE.MeshStandardMaterial({ color: d.body, roughness: 0.8, metalness: 0.0 });
+            const top = new THREE.MeshStandardMaterial({ map: makeTopTexture(d), roughness: 0.7, metalness: 0.0 });
+            const sideP = new THREE.MeshStandardMaterial({ map: makeSideTexture(d, false), roughness: 0.8, metalness: 0.0 });
+            const sideN = new THREE.MeshStandardMaterial({ map: makeSideTexture(d, true), roughness: 0.8, metalness: 0.0 });
+            return [body, body, top, body, sideP, sideN];
+        }
+
+        // 材質は全員で共有する（人数分つくらない）
+        const designMaterials = ERASER_DESIGNS.map(buildDesignMaterials);
+
+        function createEraser(position, designIndex, slot) {
+            const design = ERASER_DESIGNS[designIndex % ERASER_DESIGNS.length];
+            const color = design.accent;
+            const mesh = new THREE.Mesh(eraserGeometry, designMaterials[designIndex % ERASER_DESIGNS.length]);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
             scene.add(mesh);
-
-            const labelMat = new THREE.MeshStandardMaterial({
-                color: 0xffffff,
-                roughness: 0.4
-            });
-            const label = new THREE.Mesh(labelGeometry, labelMat);
-            label.rotation.x = -Math.PI / 2;
-            label.position.y = eraserSize.height / 2 + 0.0001;
-            mesh.add(label);
 
             const shape = new CANNON.Box(new CANNON.Vec3(
                 eraserSize.width / 2,
@@ -547,7 +744,7 @@
                 removed: false,       // プレイヤーが退出して盤面から消えた
                 respawning: false,    // 落下して復帰待ち
                 respawnTimer: 0,
-                labelMat,
+                design: designIndex,
                 initialPos: {
                     x: position.x,
                     y: eraserSize.height / 2 + 0.001,
@@ -829,17 +1026,12 @@
             return out;
         }
 
-        function colorForIndex(i) {
-            if (i < eraserColors.length) return eraserColors[i];
-            return new THREE.Color().setHSL((i * 0.137) % 1, 0.75, 0.62).getHex();
-        }
-
         function setupMatch(slots) {
             const solo = role === 'solo';
             const layout = solo ? getGridLayout(slots.length) : getSpawnLayout(slots.length);
             slots.forEach((slot, i) => {
-                const color = solo ? colorForIndex(i) : eraserColors[slot % eraserColors.length];
-                const e = createEraser(layout[i], color, slot);
+                const design = (solo ? i : slot) % ERASER_DESIGNS.length;   // ひとりプレイは4種類を順番にくり返す
+                const e = createEraser(layout[i], design, slot);
                 e.mesh.position.copy(e.body.position);
                 e.netPos = new THREE.Vector3().copy(e.body.position);
                 e.netQuat = new THREE.Quaternion();
@@ -848,16 +1040,11 @@
                 erasersBySlot.set(slot, e);
             });
             myEraser = solo ? null : (erasersBySlot.get(mySlot) || null);
-            if (myEraser) ownRing.material.color.setHex(myEraser.color);
         }
 
         function endMatch() {
             for (const e of erasers) {
-                scene.remove(e.mesh);
-                e.mesh.traverse((child) => {
-                    if (child !== e.mesh && child.material) child.material.dispose();
-                });
-                if (e.mesh.material) e.mesh.material.dispose();
+                scene.remove(e.mesh);   // 材質・テクスチャは共有しているので破棄しない
                 if (!e.respawning && !e.removed) world.removeBody(e.body);
             }
             erasers.length = 0;
@@ -1062,6 +1249,7 @@
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
+            fitCameraToDesk();
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
@@ -1092,7 +1280,7 @@
         let hostConn = null;        // ゲスト用: ホストへの接続
 
         function colorCss(i) {
-            return '#' + eraserColors[i % eraserColors.length].toString(16).padStart(6, '0');
+            return '#' + ERASER_DESIGNS[i % ERASER_DESIGNS.length].accent.toString(16).padStart(6, '0');
         }
 
         function renderLobby() {
@@ -1100,7 +1288,7 @@
             $('slots').innerHTML = roster.map((on, i) => {
                 const dot = `<span class="dot" style="background:${on ? colorCss(i) : '#555'}"></span>`;
                 if (!on) return `<div class="slot">${dot}<span class="tag">待機中…</span></div>`;
-                const tags = [i === 0 ? 'ホスト' : '', i === mySlot ? 'あなた' : ''].filter(Boolean).join(' / ');
+                const tags = [ERASER_DESIGNS[i].name, i === 0 ? 'ホスト' : '', i === mySlot ? 'あなた' : ''].filter(Boolean).join(' / ');
                 return `<div class="slot filled">${dot}<span class="name">P${i + 1}</span><span class="tag">${tags}</span></div>`;
             }).join('');
 
@@ -1148,7 +1336,7 @@
             } else {
                 $('hud-dot').style.display = '';
                 $('hud-dot').style.background = colorCss(mySlot);
-                $('hud-text').textContent = 'あなた: P' + (mySlot + 1);
+                $('hud-text').textContent = 'あなた: P' + (mySlot + 1) + '（' + ERASER_DESIGNS[mySlot % ERASER_DESIGNS.length].name + '）';
             }
             $('hud').style.display = 'flex';
             $('btn-quit').style.display = 'block';
