@@ -208,7 +208,7 @@
         const DESK_DEPTH  = 0.4;
         const DESK_THICKNESS = 0.02;
 
-        // 実物（MONOなど）に近い 長さ:幅 ≒ 2.4:1 の比率。断面の大きさは従来と同程度にして転がりやすさを変えない
+        // 実物に近い 長さ:幅 ≒ 2.4:1 の比率。断面の大きさは従来と同程度にして転がりやすさを変えない
         const ERASER_LONG  = 0.04;
         const ERASER_SHORT = ERASER_LONG / 2.4;
         const ERASER_HEIGHT = ERASER_SHORT * 0.68;
@@ -502,17 +502,17 @@
         );
         // ============================================
         // 消しゴムのデザイン（上面・側面のテクスチャをキャンバスで描く）
-        //   P1: MONO / P2: Arch / P3: Ain / P4: 無印(黒・大)
+        //   P1〜P4 で4種類のデザイン（青白黒の帯 / 緑の帯 / 紺色 / 黒＋クラフト紙）
         // ============================================
         const FONT_SANS = '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif';
 
         // body: むき出しの消しゴムの色 / sleeveFrom〜To: 紙スリーブの範囲(長さ方向 0〜1)
         // sideN / sideP: スリーブの奥側(-z)・手前側(+z)の側面の色
         const ERASER_DESIGNS = [
-            { id: 'mono', name: 'MONO', accent: 0x2f5fd0, body: '#eceef0', sleeveFrom: 0.17, sleeveTo: 1.00, sideN: '#03378a', sideP: '#0a0c0b' },
-            { id: 'arch', name: 'Arch', accent: 0x1f8f4e, body: '#f5f4f2', sleeveFrom: 0.20, sleeveTo: 1.00, sideN: '#f3f2f0', sideP: '#f3f2f0' },
-            { id: 'ain',  name: 'Ain',  accent: 0x6a5fe0, body: '#e6edf0', sleeveFrom: 0.25, sleeveTo: 1.00, sideN: '#0a3466', sideP: '#0a3466' },
-            { id: 'muji', name: '無印', accent: 0xb5483a, body: '#1c1c1c', sleeveFrom: 0.14, sleeveTo: 0.86, sideN: '#d6c6b6', sideP: '#d6c6b6' }
+            { id: 'design1', accent: 0x2f5fd0, body: '#eceef0', sleeveFrom: 0.17, sleeveTo: 1.00, sideN: '#03378a', sideP: '#0a0c0b' },
+            { id: 'design2', accent: 0x1f8f4e, body: '#f5f4f2', sleeveFrom: 0.20, sleeveTo: 1.00, sideN: '#f3f2f0', sideP: '#f3f2f0' },
+            { id: 'design3', accent: 0x6a5fe0, body: '#e6edf0', sleeveFrom: 0.25, sleeveTo: 1.00, sideN: '#0a3466', sideP: '#0a3466' },
+            { id: 'design4', accent: 0xb5483a, body: '#1c1c1c', sleeveFrom: 0.14, sleeveTo: 0.86, sideN: '#d6c6b6', sideP: '#d6c6b6' }
         ];
 
         // 文字を中央/左/右揃えで描く（字間・横幅の自動縮小つき）
@@ -552,19 +552,17 @@
             g.restore();
         }
 
-        function drawMono(g, x0, x1, W, H) {
+        function drawDesign1(g, x0, x1, W, H) {
             const sw = x1 - x0, cx = (x0 + x1) / 2;
             g.fillStyle = '#03378a'; g.fillRect(x0, 0, sw, H * 0.34);
             g.fillStyle = '#f4f6f8'; g.fillRect(x0, H * 0.34, sw, H * 0.34);
             g.fillStyle = '#060807'; g.fillRect(x0, H * 0.68, sw, H * 0.32);
             drawText(g, 'PLASTIC ERASER', cx, H * 0.17, H * 0.105, { color: '#fff', weight: '500', spacing: 2, maxW: sw * 0.78 });
-            drawText(g, 'MONO', cx, H * 0.51, H * 0.31, { color: '#050607', weight: '900', spacing: H * 0.05, maxW: sw * 0.80 });
+            drawText(g, '消しゴム', cx, H * 0.51, H * 0.29, { color: '#050607', weight: '900', spacing: H * 0.06, maxW: sw * 0.80 });
             drawDragonfly(g, x0 + sw * 0.15, H * 0.84, H * 0.14);
-            drawText(g, 'Tombow', x0 + sw * 0.25, H * 0.84, H * 0.13, { color: '#fff', weight: '400', align: 'left', maxW: sw * 0.34 });
-            drawText(g, 'PE-03A', x1 - sw * 0.05, H * 0.86, H * 0.075, { color: '#fff', weight: '500', align: 'right' });
         }
 
-        function drawArch(g, x0, x1, W, H) {
+        function drawDesign2(g, x0, x1, W, H) {
             const sw = x1 - x0;
             const X = (t) => x0 + sw * t;
             g.fillStyle = '#f8f6f7'; g.fillRect(x0, 0, sw, H);
@@ -595,12 +593,11 @@
             crescent(X(0.115), H * 0.52, sw * 0.07);
             crescent(X(0.215), H * 0.38, sw * 0.05);
             crescent(X(0.300), H * 0.26, sw * 0.035);
-            drawText(g, 'アーチ', X(0.64), H * 0.30, H * 0.09, { color: '#ffe36a', weight: '800' });
-            drawText(g, 'Arch', X(0.68), H * 0.53, H * 0.29, { color: '#fff', weight: '900', maxW: sw * 0.44 });
-            drawText(g, 'FOAM ERASER', X(0.68), H * 0.76, H * 0.08, { color: '#fff', weight: '700', spacing: 3, maxW: sw * 0.44 });
+            drawText(g, 'FOAM', X(0.68), H * 0.46, H * 0.29, { color: '#fff', weight: '900', spacing: 4, maxW: sw * 0.44 });
+            drawText(g, 'ERASER', X(0.68), H * 0.73, H * 0.11, { color: '#fff', weight: '700', spacing: 5, maxW: sw * 0.44 });
         }
 
-        function drawAin(g, x0, x1, W, H) {
+        function drawDesign3(g, x0, x1, W, H) {
             const sw = x1 - x0;
             const X = (t) => x0 + sw * t;
             const grad = g.createLinearGradient(x0, 0, x1, H);
@@ -613,15 +610,13 @@
                 g.ellipse(X(0.55), H * 0.5, sw * (0.40 + i * 0.07), H * (0.30 + i * 0.10), -0.18, 0, Math.PI * 2);
                 g.stroke();
             }
-            drawText(g, 'Pentel', X(0.06), H * 0.14, H * 0.10, { color: '#fff', weight: '800', align: 'left' });
-            drawText(g, 'HI-POLYMER', X(0.95), H * 0.14, H * 0.095, { color: '#fff', weight: '900', italic: true, align: 'right', spacing: 2, maxW: sw * 0.40 });
-            drawText(g, 'Ain', X(0.52), H * 0.47, H * 0.50, { color: '#fff', weight: '900', maxW: sw * 0.46 });
+            drawText(g, '消しゴム', X(0.52), H * 0.42, H * 0.30, { color: '#fff', weight: '900', spacing: H * 0.03, maxW: sw * 0.70 });
             drawText(g, 'PLASTIC ERASER', X(0.05), H * 0.80, H * 0.072, { color: '#fff', weight: '500', align: 'left', maxW: sw * 0.34 });
             drawText(g, '軽く消せる', X(0.42), H * 0.80, H * 0.15, { color: '#fff', weight: '900', align: 'left', maxW: sw * 0.43 });
             drawText(g, 'タイプ', X(0.86), H * 0.84, H * 0.075, { color: '#fff', weight: '800', align: 'left', maxW: sw * 0.12 });
         }
 
-        function drawMuji(g, x0, x1, W, H) {
+        function drawDesign4(g, x0, x1, W, H) {
             const sw = x1 - x0;
             const X = (t) => x0 + sw * t;
             g.fillStyle = '#d6c6b6'; g.fillRect(x0, 0, sw, H);
@@ -645,7 +640,7 @@
             g.strokeRect(X(0.80) - H * 0.045, H * 0.50 - H * 0.045, H * 0.09, H * 0.09);
         }
 
-        const DESIGN_DRAW = { mono: drawMono, arch: drawArch, ain: drawAin, muji: drawMuji };
+        const DESIGN_DRAW = { design1: drawDesign1, design2: drawDesign2, design3: drawDesign3, design4: drawDesign4 };
 
         function makeTopTexture(d) {
             const W = 1200, H = 500;
@@ -1288,7 +1283,7 @@
             $('slots').innerHTML = roster.map((on, i) => {
                 const dot = `<span class="dot" style="background:${on ? colorCss(i) : '#555'}"></span>`;
                 if (!on) return `<div class="slot">${dot}<span class="tag">待機中…</span></div>`;
-                const tags = [ERASER_DESIGNS[i].name, i === 0 ? 'ホスト' : '', i === mySlot ? 'あなた' : ''].filter(Boolean).join(' / ');
+                const tags = [i === 0 ? 'ホスト' : '', i === mySlot ? 'あなた' : ''].filter(Boolean).join(' / ');
                 return `<div class="slot filled">${dot}<span class="name">P${i + 1}</span><span class="tag">${tags}</span></div>`;
             }).join('');
 
@@ -1336,7 +1331,7 @@
             } else {
                 $('hud-dot').style.display = '';
                 $('hud-dot').style.background = colorCss(mySlot);
-                $('hud-text').textContent = 'あなた: P' + (mySlot + 1) + '（' + ERASER_DESIGNS[mySlot % ERASER_DESIGNS.length].name + '）';
+                $('hud-text').textContent = 'あなた: P' + (mySlot + 1);
             }
             $('hud').style.display = 'flex';
             $('btn-quit').style.display = 'block';
